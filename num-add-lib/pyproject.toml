@@ -1,0 +1,21 @@
+[project]
+name = "num-add-lib"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "asglover", email = "140220574+asglover@users.noreply.github.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.10.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
