@@ -1,0 +1,30 @@
+#include <torch/extension.h>
+#include <torch/library.h>
+
+constexpr int NUM = {{NUM}}; 
+
+torch::Tensor num_add_cpu(
+    const torch::Tensor& a,
+    int64_t b) {
+  TORCH_CHECK(a.scalar_type() == torch::kFloat, "expected float tensor");
+  TORCH_CHECK(a.device().is_cpu(), "expected CPU tensor");
+  TORCH_CHECK(b == NUM, "expected num to match build-time NUM");
+
+  torch::Tensor a_contig = a.contiguous();
+  torch::Tensor result = torch::empty_like(a_contig);
+
+  const float* a_ptr = a_contig.const_data_ptr<float>();
+  float* result_ptr = result.mutable_data_ptr<float>();
+  std::cout << "USING SPECIALIZED C++ EXTENSION" << std::endl; 
+  for (int64_t i = 0; i < result.numel(); i++) {
+    result_ptr[i] = a_ptr[i] + NUM;
+  }
+  return result;
+}
+
+
+TORCH_LIBRARY_IMPL({{LIBRARY_NAME}}, CPU, m) {
+    m.impl("forward_op", num_add_cpu);
+};
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}

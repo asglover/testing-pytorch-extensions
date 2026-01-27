@@ -22,6 +22,16 @@ def test_forward(module, t):
     torch.testing.assert_close(module(t), (t + module.number))
 
 def test_backward(module, t):
-    loss = torch.sum(module(t))
-    loss.backward()
+    t_custom = t.clone().requires_grad_()
+    t_ref = t.clone().requires_grad_()
+
+    loss_custom = torch.sum(module(t_custom))
+    loss_ref = torch.sum(t_ref + module.number)
+
+    loss_custom.backward()
+    loss_ref.backward()
+
+    torch.testing.assert_close(t_custom.grad, t_ref.grad)
+
+    
     

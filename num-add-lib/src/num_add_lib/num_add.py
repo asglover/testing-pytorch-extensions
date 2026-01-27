@@ -1,8 +1,9 @@
-import random 
+
 import torch
 
 from torch import Tensor
-from torch.library import custom_op
+from torch.library import custom_op, register_kernel
+from num_add_lib.cpp_extension_utils import register_extension
 
 class SpecializedModule(torch.nn.Module):
  
@@ -12,13 +13,8 @@ class SpecializedModule(torch.nn.Module):
         self.ns = f"test_number_{number}"
         self.lib = torch.library.Library(ns=self.ns, kind="DEF")
 
-        
-        def forward(x : Tensor)-> Tensor:
-            return self.forward_custom_op(x, self.number)
-        
         def forward_op(x: Tensor, num : int) -> Tensor: 
-            return x + num 
-        
+            return x + num  
         
         self.forward_custom_op = custom_op( 
             self.ns + "::forward_op",
@@ -27,11 +23,18 @@ class SpecializedModule(torch.nn.Module):
             device_types=None,
             )
         
-
+        # register_kernel(
+        #     self.ns + "::forward_op",
+        #     None,
+        #     forward_op,
+        #     lib = self.lib
+        # )
         
+        # register_extension(self.ns, self.number)
+        
+
     def forward(self, x):
         return self.forward_custom_op(x, self.number)
-        
         
 
     
