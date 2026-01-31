@@ -11,17 +11,19 @@ def num(request):
 def module(num):
     return SpecializedModule(num)
 
-@pytest.fixture
-def t():
-    return torch.Tensor([1, 4, 5, 6, 7])
 
-def test_forward(module, t):
-    print(t)
-    print(module(t))
-    print(t + module.number)
-    torch.testing.assert_close(module(t), (t + module.number))
+def test_forward(module):
+    with torch.no_grad():
+        t = torch.Tensor([1, 4, 5, 6, 7])
+        print(t)
+        test = module(t)
+        ref = t + module.number
+        print(test)
+        print(ref)
+        torch.testing.assert_close(test, ref)
 
-def test_backward(module, t):
+def test_backward(module):
+    t = torch.Tensor([1, 4, 5, 6, 7])
     t_custom = t.clone().requires_grad_()
     t_ref = t.clone().requires_grad_()
 

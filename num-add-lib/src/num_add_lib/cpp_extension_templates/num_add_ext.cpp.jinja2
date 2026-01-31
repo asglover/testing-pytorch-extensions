@@ -22,9 +22,31 @@ torch::Tensor num_add_cpu(
   return result;
 }
 
+torch::Tensor forward_op_autograd(const torch::Tensor& a, int64_t b) {
+  static auto op =
+      c10::Dispatcher::singleton()
+          .findSchemaOrThrow("{{LIBRARY_NAME}}::forward_op", "")
+          .typed<torch::Tensor(const torch::Tensor&, int64_t)>();
+  
+  std::cout << "Aye, I'm redispatching here!" << std::endl; 
+
+  const bool grad_enabled = at::GradMode::is_enabled();
+  const bool a_needs_grad = a.requires_grad();
+
+  if (grad_enabled && a_needs_grad){
+    return op.redispatch(c10::DispatchKeySet(c10::DispatchKey::CompositeImplicitAutograd), a, b);
+  } else {
+    return op.redispatch(c10::DispatchKeySet(c10::DispatchKey::CPU), a, b);
+  }
+}
+
 
 TORCH_LIBRARY_IMPL({{LIBRARY_NAME}}, CPU, m) {
-    m.impl("forward_op", num_add_cpu);
+  m.impl("forward_op", num_add_cpu);
 };
+
+TORCH_LIBRARY_IMPL({{LIBRARY_NAME}}, AutogradCPU, m) {
+  m.impl("forward_op", forward_op_autograd);
+}
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}
