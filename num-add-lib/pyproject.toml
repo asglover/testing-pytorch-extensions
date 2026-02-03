@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "asglover", email = "140220574+asglover@users.noreply.github.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "jinja2>=3.1.6",
     "ninja>=1.13.0",
@@ -23,3 +23,6 @@ build-backend = "hatchling.build"
 dev = [
     "pytest>=9.0.2",
 ]
+
+[tool.pytest.ini_options]
+log_cli = true
