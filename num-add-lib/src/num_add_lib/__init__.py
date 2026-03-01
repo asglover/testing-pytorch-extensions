@@ -1,3 +1,3 @@
-from .num_add import SpecializedModule, PythonRegistrationType, CppRegistrationType
+from .num_add import SpecializedModule, CppRegistrationType
 
-__all__ = ["SpecializedModule", "PythonRegistrationType", "CppRegistrationType"]
+__all__ = ["SpecializedModule", "CppRegistrationType"]

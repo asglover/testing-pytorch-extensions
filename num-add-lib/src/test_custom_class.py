@@ -3,7 +3,7 @@ import pytest
 
 import logging
 
-from num_add_lib import SpecializedModule, PythonRegistrationType, CppRegistrationType
+from num_add_lib import SpecializedModule, CppRegistrationType
 from torch.utils._debug_mode import DebugMode
 
 logger = logging.getLogger(__name__)
@@ -13,17 +13,13 @@ logger = logging.getLogger(__name__)
 def num(request):
     return request.param
 
-@pytest.fixture(params=list(PythonRegistrationType), scope="module")
-def python_registration(request):
-    return request.param
-
 @pytest.fixture(params=list(CppRegistrationType), scope="module")
 def cpp_registration(request):
     return request.param
 
 @pytest.fixture(scope="module")
-def module(num, python_registration, cpp_registration):
-    return SpecializedModule(num, python_registration, cpp_registration)
+def module(num, cpp_registration):
+    return SpecializedModule(num, cpp_registration)
 
 
 @pytest.fixture(scope="function")
