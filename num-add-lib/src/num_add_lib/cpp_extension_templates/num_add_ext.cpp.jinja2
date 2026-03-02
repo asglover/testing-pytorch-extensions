@@ -5,10 +5,13 @@ constexpr int NUM = {{NUM}};
 
 torch::Tensor num_add_cpu(
     const torch::Tensor& a,
-    int64_t b) {
+    const torch::Tensor& b) {
   TORCH_CHECK(a.scalar_type() == torch::kFloat, "expected float tensor");
   TORCH_CHECK(a.device().is_cpu(), "expected CPU tensor");
-  TORCH_CHECK(b == NUM, "expected num to match build-time NUM");
+  TORCH_CHECK(b.scalar_type() == torch::kLong, "expected scalar int64 tensor");
+  TORCH_CHECK(b.device().is_cpu(), "expected CPU scalar tensor");
+  TORCH_CHECK(b.dim() == 0, "expected scalar tensor for num");
+  TORCH_CHECK(b.item<int64_t>() == NUM, "expected num to match build-time NUM");
 
   torch::Tensor a_contig = a.contiguous();
   torch::Tensor result = torch::empty_like(a_contig);
