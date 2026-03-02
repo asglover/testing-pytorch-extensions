@@ -1,0 +1,36 @@
+#include <torch/extension.h>
+#include <torch/library.h>
+
+constexpr int NUM = {{NUM}};
+
+torch::Tensor num_add_backward_x_cpu(
+    const torch::Tensor& grad_output,
+    const torch::Tensor& x,
+    const torch::Tensor& num) {
+  TORCH_CHECK(grad_output.scalar_type() == torch::kFloat, "expected float tensor");
+  TORCH_CHECK(grad_output.device().is_cpu(), "expected CPU tensor");
+  TORCH_CHECK(x.scalar_type() == torch::kFloat, "expected float tensor");
+  TORCH_CHECK(x.device().is_cpu(), "expected CPU tensor");
+  TORCH_CHECK(x.sizes() == grad_output.sizes(), "expected grad_output to match x shape");
+  TORCH_CHECK(num.scalar_type() == torch::kLong, "expected scalar int64 tensor");
+  TORCH_CHECK(num.device().is_cpu(), "expected CPU scalar tensor");
+  TORCH_CHECK(num.dim() == 0, "expected scalar tensor for num");
+  TORCH_CHECK(num.item<int64_t>() == NUM, "expected num to match build-time NUM");
+
+  torch::Tensor grad_output_contig = grad_output.contiguous();
+  torch::Tensor result = torch::empty_like(grad_output_contig);
+
+  const float* grad_output_ptr = grad_output_contig.const_data_ptr<float>();
+  float* result_ptr = result.mutable_data_ptr<float>();
+  std::cout << "USING SPECIALIZED C++ BACKWARD EXTENSION" << std::endl;
+  for (int64_t i = 0; i < result.numel(); i++) {
+    result_ptr[i] = grad_output_ptr[i];
+  }
+  return result;
+}
+
+TORCH_LIBRARY_IMPL({{LIBRARY_NAME}}, CPU, m) {
+  m.impl("backward_x_op", num_add_backward_x_cpu);
+};
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {}

@@ -1,6 +1,6 @@
 You should be able to run the tests with 
 ```
-cd num_add_lib
+cd num-add-lib
 ```
 
 ```

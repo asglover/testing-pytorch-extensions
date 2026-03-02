@@ -3,7 +3,11 @@ import pytest
 
 import logging
 
-from num_add_lib import SpecializedModule, CppRegistrationType
+from num_add_lib import (
+    CppBackwardRegistrationType,
+    CppRegistrationType,
+    SpecializedModule,
+)
 from torch.utils._debug_mode import DebugMode
 
 logger = logging.getLogger(__name__)
@@ -30,6 +34,11 @@ def cpp_registration(request):
     return request.param
 
 
+@pytest.fixture(params=list(CppBackwardRegistrationType), scope="module")
+def cpp_backward_registration(request):
+    return request.param
+
+
 @pytest.fixture(
     params=_available_test_devices(),
     ids=lambda device: str(device),
@@ -40,8 +49,17 @@ def device(request):
 
 
 @pytest.fixture(scope="module")
-def module(num, cpp_registration, device):
-    specialized_module = SpecializedModule(num, cpp_registration)
+def specialized_module(num, cpp_registration, cpp_backward_registration):
+    specialized_module = SpecializedModule(
+        num,
+        cpp_registration,
+        cpp_backward_registration,
+    )
+    return specialized_module
+
+
+@pytest.fixture(scope="function")
+def module(specialized_module, device):
     specialized_module.number = specialized_module.number.to(device)
     return specialized_module
 
@@ -69,13 +87,29 @@ def test_forward_opcheck(module, t):
     torch.library.opcheck(op_overload, (t, module.number))
 
 
+def test_backward_x(module, t):
+    grad_output = torch.linspace(
+        0.5,
+        1.5,
+        steps=t.numel(),
+        dtype=t.dtype,
+        device=t.device,
+    ).reshape_as(t)
+
+    op_overload = getattr(getattr(torch.ops, module.ns), "backward_x_op")
+    test = op_overload(grad_output, t, module.number)
+
+    torch.testing.assert_close(test, grad_output)
+
+
 def test_backward(module, t):
     t_test = t.clone().requires_grad_()
     t_ref = t.clone().requires_grad_()
 
     with DebugMode(record_stack_trace=True) as dm:
-        loss_test = torch.sum(module(t_test))
-        loss_test.backward()
+        output_test = module(t_test)
+    loss_test = torch.sum(output_test)
+    loss_test.backward()
 
     loss_ref = torch.sum(t_ref + module.number)
 
@@ -99,11 +133,12 @@ def test_double_backward(module, t):
     ).reshape_as(t)
 
     with DebugMode(record_stack_trace=True) as dm:
-        loss_test = torch.sum(module(t_test).pow(3))
-        first_grad_test = torch.autograd.grad(loss_test, t_test, create_graph=True)[0]
-        second_grad_test = torch.autograd.grad(
-            torch.sum(first_grad_test * grad_output), t_test
-        )[0]
+        output_test = module(t_test)
+    loss_test = torch.sum(output_test.pow(3))
+    first_grad_test = torch.autograd.grad(loss_test, t_test, create_graph=True)[0]
+    second_grad_test = torch.autograd.grad(
+        torch.sum(first_grad_test * grad_output), t_test
+    )[0]
 
     loss_ref = torch.sum((t_ref + module.number).pow(3))
     first_grad_ref = torch.autograd.grad(loss_ref, t_ref, create_graph=True)[0]

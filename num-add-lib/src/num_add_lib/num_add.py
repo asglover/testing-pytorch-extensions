@@ -6,12 +6,20 @@ import torch
 
 from torch import Tensor
 from torch.library import custom_op
-from num_add_lib.cpp_extension_utils import register_cpp_extension
+from num_add_lib.cpp_extension_utils import (
+    register_cpp_backward_extension,
+    register_cpp_forward_extension,
+)
 
 
 class CppRegistrationType(StrEnum):
     Forward = "CppForward"
     Nothing = "NoCpp"
+
+
+class CppBackwardRegistrationType(StrEnum):
+    BackwardX = "CppBackwardX"
+    Nothing = "NoCppBackward"
 
 
 def _as_tuple(argnums: int | tuple[int, ...]) -> tuple[int, ...]:
@@ -20,7 +28,7 @@ def _as_tuple(argnums: int | tuple[int, ...]) -> tuple[int, ...]:
     return tuple(argnums)
 
 
-def make_autograd_registration(
+def make_vjp_autograd_registration(
     reference_forward: Callable[..., Any],
     *,
     diff_argnums: int | tuple[int, ...],
@@ -62,21 +70,58 @@ def make_autograd_registration(
     return setup_context, backward
 
 
+def make_backward_x_reference(
+    reference_forward: Callable[[Tensor, Tensor], Tensor],
+) -> Callable[[Tensor, Tensor, Tensor], Tensor]:
+    def backward_x_op(grad_output: Tensor, x: Tensor, num: Tensor) -> Tensor:
+        _, vjp_fn = torch.func.vjp(lambda x_: reference_forward(x_, num), x)
+        return vjp_fn(grad_output)[0].clone()
+
+    return backward_x_op
+
+
+def make_forward_autograd_registration(
+    backward_x_custom_op: Callable[[Tensor, Tensor, Tensor], Tensor],
+) -> tuple[Callable[..., None], Callable[..., tuple[Tensor | None, None]]]:
+    def setup_context(ctx, inputs, output) -> None:
+        del output
+        ctx.save_for_backward(*inputs)
+
+    def backward(ctx, grad_output):
+        x, num = ctx.saved_tensors
+        if grad_output is None:
+            return None, None
+        if not ctx.needs_input_grad[0]:
+            return None, None
+        return backward_x_custom_op(grad_output, x, num), None
+
+    return setup_context, backward
+
+
 class SpecializedModule(torch.nn.Module):
     def __init__(
         self,
         number: int,
         cpp_registration: CppRegistrationType,
+        cpp_backward_registration: CppBackwardRegistrationType = (
+            CppBackwardRegistrationType.Nothing
+        ),
     ):
         super().__init__()
         self.number_value = number
         self.number = torch.tensor(number, dtype=torch.int64)
         self.cpp_registration = cpp_registration
-        self.ns = f"test_number_{number}_CustomOpAutograd_{cpp_registration}"
+        self.cpp_backward_registration = cpp_backward_registration
+        self.ns = (
+            f"test_number_{number}_CustomOpAutograd_"
+            f"{cpp_registration}_{cpp_backward_registration}"
+        )
 
         def forward_op(x: Tensor, num: Tensor) -> Tensor:
             print("forward native pytorch")
             return x + num
+
+        backward_x_op = make_backward_x_reference(forward_op)
 
         self.forward_custom_op = custom_op(
             self.ns + "::forward_op",
@@ -89,9 +134,33 @@ class SpecializedModule(torch.nn.Module):
         def _(x: Tensor, num: Tensor) -> Tensor:
             return forward_op(x, num)
 
-        setup_context, backward = make_autograd_registration(
-            forward_op,
-            diff_argnums=(0,),
+        self.backward_x_custom_op = custom_op(
+            self.ns + "::backward_x_op",
+            backward_x_op,
+            mutates_args=(),
+            device_types=None,
+        )
+
+        @self.backward_x_custom_op.register_fake
+        def _(grad_output: Tensor, x: Tensor, num: Tensor) -> Tensor:
+            del grad_output, num
+            return torch.empty_like(x)
+
+        # backward_x_op needs its own autograd formula so forward_op supports
+        # higher-order derivatives when its backward path is routed through this op.
+        backward_x_setup_context, backward_x_backward = make_vjp_autograd_registration(
+            backward_x_op,
+            diff_argnums=(0, 1),
+        )
+
+        torch.library.register_autograd(
+            self.backward_x_custom_op,
+            backward_x_backward,
+            setup_context=backward_x_setup_context,
+        )
+
+        setup_context, backward = make_forward_autograd_registration(
+            self.backward_x_custom_op,
         )
 
         torch.library.register_autograd(
@@ -102,8 +171,14 @@ class SpecializedModule(torch.nn.Module):
 
         match cpp_registration:
             case CppRegistrationType.Forward:
-                register_cpp_extension(self.ns, self.number_value)
+                register_cpp_forward_extension(self.ns, self.number_value)
             case CppRegistrationType.Nothing:
+                pass
+
+        match cpp_backward_registration:
+            case CppBackwardRegistrationType.BackwardX:
+                register_cpp_backward_extension(self.ns, self.number_value)
+            case CppBackwardRegistrationType.Nothing:
                 pass
 
     def forward(self, x):
